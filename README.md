@@ -124,6 +124,18 @@ const increment = (): void => {
    npm test
    ```
 
+
+## 📄 文档与设计讨论
+- [迁移策略](docs/MIGRATION_STRATEGY.md) - Grok × GPT-4o 协作制定的迁移流程。
+- [AI 插件设计](docs/AI_PLUGIN_DESIGN.md) - 详细记录 `aiPlugin.ts` 的实现与优化。
+- [路线图](docs/ROADMAP.md) - 项目未来发展计划，欢迎社区反馈。
+
+## 安装与使用
+```bash
+npm install
+export OPENAI_API_KEY=sk-...
+ts-node bin/cli.ts -i src/**/*.vue --ai --ts --validate-ai --output out
+
 ## License
 
 ISC 
