@@ -68,7 +68,7 @@ ${scriptContent}
     try {
       // 调用 OpenAI API（兼容 v4.9.0+）
       const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
+        model: 'gpt-3.5-turbo',
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 2000,
         temperature: 0.2,
