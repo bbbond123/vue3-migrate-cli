@@ -44,7 +44,7 @@ const aiPlugin = {
     const cachedResult = cache.get(cacheKey);
     if (cachedResult) {
       console.log(`📦 使用缓存结果：${filePath}`);
-      return content.replace(scriptMatch[0], cachedResult);
+      return content.replace(scriptMatch[0], cachedResult as string);
     }
 
     // 提取注释
