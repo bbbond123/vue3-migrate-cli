@@ -7,6 +7,7 @@ import { ESLint } from 'eslint';
 import prettier from 'prettier';
 import { EventEmitter } from 'events';
 import readline from 'readline';
+import OpenAI from 'openai';
 
 interface MigrationOptions {
   source: string;
@@ -101,6 +102,10 @@ const codemodsPlugin: Plugin = {
 };
 
 // 插件：AI 转换（支持 TypeScript）
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
 const aiPlugin: Plugin = {
   name: 'ai-conversion',
   async process(content: string, filePath: string, options: MigrationOptions) {
@@ -108,38 +113,30 @@ const aiPlugin: Plugin = {
     const scriptMatch = content.match(/<script[^>]*>([\s\S]*?)<\/script>/);
     if (!scriptMatch) return content;
 
-    // 模拟 AI 转换
-    const convertedScript = options.ts
-      ? `
-<script setup lang="ts">
-import { ref } from 'vue';
+    const originalScript = scriptMatch[0];
+    const originalScriptContent = scriptMatch[1];
 
-interface Props {
-  initialCount?: number;
-}
+    // 构造 prompt
+    const prompt = `将以下 Vue 2 Options API 组件转换为 Vue 3 Composition API，使用 <script setup lang=\"ts\">。保留所有 props、emits、计算属性、方法和业务逻辑。修复不兼容的 API（如 $on、filters、Vue.set）。为所有变量、props 和 emits 添加 TypeScript 类型注解。确保代码简洁，遵循 Vue 3 和 TypeScript 最佳实践。\n\n输入：\n<script>\n${originalScriptContent}\n</script>\n\n输出：`;
 
-const props = withDefaults(defineProps<Props>(), {
-  initialCount: 0
-});
-
-const count = ref<number>(props.initialCount);
-
-const increment = (): void => {
-  count.value++;
-};
-</script>
-      `
-      : `
-<script setup lang="ts">
-import { ref } from 'vue';
-const count = ref(0);
-function increment() {
-  count.value++;
-}
-</script>
-      `;
-
-    return content.replace(scriptMatch[0], convertedScript);
+    try {
+      const completion = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'user', content: prompt }
+        ],
+        temperature: 0.2,
+        max_tokens: 2048,
+      });
+      const aiResult = completion.choices[0].message?.content || '';
+      // 只提取 <script setup lang="ts"> ... </script> 部分
+      const scriptSetupMatch = aiResult.match(/<script setup lang=\"ts\">[\s\S]*?<\/script>/);
+      const newScript = scriptSetupMatch ? scriptSetupMatch[0] : aiResult;
+      return content.replace(originalScript, newScript);
+    } catch (err) {
+      console.error('OpenAI API 调用失败:', err);
+      return content;
+    }
   },
 };
 
@@ -192,8 +189,10 @@ const eslintPlugin: Plugin = {
 const prettierPlugin: Plugin = {
   name: 'prettier',
   async process(content: string, filePath: string, options: MigrationOptions) {
+    // 判断是否为 .vue 文件
+    const parser = filePath.endsWith('.vue') ? 'vue' : (options.ts ? 'typescript' : 'babel');
     return prettier.format(content, {
-      parser: options.ts ? 'typescript' : 'vue',
+      parser,
       singleQuote: true,
       semi: true,
     });
@@ -203,7 +202,7 @@ const prettierPlugin: Plugin = {
 // 主函数：批量处理 source -> target
 async function migrateDir(sourceDir: string, targetDir: string, options: MigrationOptions): Promise<MigrationReport[]> {
   await fs.mkdir(targetDir, { recursive: true });
-  const files = await fs.readdir(sourceDir);
+  const files = await getAllVueFiles(sourceDir);
   const pipeline = new MigrationPipeline(options);
   pipeline.registerPlugin(codemodsPlugin);
   pipeline.registerPlugin(aiPlugin);
@@ -211,10 +210,10 @@ async function migrateDir(sourceDir: string, targetDir: string, options: Migrati
   pipeline.registerPlugin(prettierPlugin);
   const report: MigrationReport[] = [];
 
-  for (const file of files) {
-    if (!file.endsWith('.vue')) continue;
-    const sourceFile = path.join(sourceDir, file);
-    const targetFile = path.join(targetDir, file);
+  for (const sourceFile of files) {
+    const relPath = path.relative(sourceDir, sourceFile);
+    const targetFile = path.join(targetDir, relPath);
+    await fs.mkdir(path.dirname(targetFile), { recursive: true });
     try {
       // 如果 target 已存在则跳过
       await fs.access(targetFile);
@@ -255,6 +254,20 @@ ${report.map(r => `${r.file}：${r.status}${r.error ? ` (${r.error})` : ''}`).jo
   }
 
   return report;
+}
+
+async function getAllVueFiles(dir: string): Promise<string[]> {
+  let results: string[] = [];
+  const list = await fs.readdir(dir, { withFileTypes: true });
+  for (const file of list) {
+    const filePath = path.join(dir, file.name);
+    if (file.isDirectory()) {
+      results = results.concat(await getAllVueFiles(filePath));
+    } else if (file.isFile() && file.name.endsWith('.vue')) {
+      results.push(filePath);
+    }
+  }
+  return results;
 }
 
 // CLI 配置
